@@ -18,12 +18,20 @@ const visualizerCanvas = document.getElementById('visualizerCanvas');
 const canvasCtx = visualizerCanvas.getContext('2d');
 const toggleApiEndpointBtn = document.getElementById('toggleApiEndpointBtn');
 const currentApiEndpointSpan = document.getElementById('currentApiEndpoint');
+const apiEndpointSelect = document.getElementById('apiEndpoint');
+const customEndpointInput = document.getElementById('customEndpoint');
 
 // --- Configuration ---
-const API_BASE_URL = 'http://34.41.84.236:8000/api/v1'; // Hardcoded API endpoint
+const ENDPOINTS = {
+    local: 'http://localhost:8000/api/v1',
+    remote: 'https://agents.tanolabs.com/api/v1',
+    staging: 'http://34.41.84.236:8000/api/v1'
+};
 
 // --- State ---
 let currentApiKey = sessionStorage.getItem('tanoAgentApiKey') || '';
+let currentEndpoint = sessionStorage.getItem('tanoAgentEndpoint') || 'remote';
+let API_BASE_URL = ENDPOINTS[currentEndpoint];
 let agents = [];
 let selectedAgentId = null;
 let tanoAgentRoom = null;
@@ -143,20 +151,54 @@ async function deleteAgent() {
 }
 
 function populateAgentList() {
-    agentsListSelect.innerHTML = '<option value="">-- Select an Agent --</option>'; // Clear existing options
-    agents.forEach(agent => {
+    agentsListSelect.innerHTML = ''; // Clear existing options
+    agents.forEach((agent, index) => {
         const option = document.createElement('option');
         option.value = agent.id;
         option.textContent = `${agent.name} (${agent.id})`;
         agentsListSelect.appendChild(option);
+
+        // Select first agent by default if no agent is currently selected
+        if (index === 0 && !selectedAgentId) {
+            selectedAgentId = agent.id;
+        }
     });
-    // Restore selection if possible
+
+    // Set the selected agent
     if (selectedAgentId && agents.some(a => a.id === selectedAgentId)) {
         agentsListSelect.value = selectedAgentId;
+    } else if (agents.length > 0) {
+        // If no valid selection, select the first agent
+        selectedAgentId = agents[0].id;
+        agentsListSelect.value = selectedAgentId;
     } else {
-        selectedAgentId = null; // Clear selection if agent no longer exists
+        selectedAgentId = null;
     }
     updateButtonStates();
+
+    // Update the instructions display for the selected agent
+    updateInstructionsDisplay();
+}
+
+// Function to update the instructions display
+function updateInstructionsDisplay() {
+    const instructionsContent = document.getElementById('instructionsContent');
+
+    if (!selectedAgentId || !instructionsContent) {
+        return;
+    }
+
+    const selectedAgent = agents.find(agent => agent.id === selectedAgentId);
+
+    if (selectedAgent) {
+        if (selectedAgent.instructions) {
+            instructionsContent.textContent = selectedAgent.instructions;
+        } else {
+            instructionsContent.textContent = "No instructions provided for this agent.";
+        }
+    } else {
+        instructionsContent.textContent = "Select an agent to view instructions";
+    }
 }
 
 async function startAgentSession() {
@@ -429,12 +471,40 @@ apiKeyInput.addEventListener('change', (e) => {
     currentApiKey = e.target.value;
     sessionStorage.setItem('tanoAgentApiKey', currentApiKey);
     log('API Key updated.');
-    // Attempt to list agents with the new key and current endpoint
     listAgents();
 });
 
+apiEndpointSelect.addEventListener('change', (e) => {
+    currentEndpoint = e.target.value;
+    if (currentEndpoint === 'custom') {
+        customEndpointInput.style.display = 'inline-block';
+        API_BASE_URL = sessionStorage.getItem('tanoAgentCustomEndpoint') || ENDPOINTS.remote;
+    } else {
+        customEndpointInput.style.display = 'none';
+        API_BASE_URL = ENDPOINTS[currentEndpoint];
+    }
+    sessionStorage.setItem('tanoAgentEndpoint', currentEndpoint);
+    log(`API endpoint changed to: ${API_BASE_URL}`);
+    updateApiEndpointDisplay();
+    listAgents();
+});
+
+customEndpointInput.addEventListener('change', (e) => {
+    const customEndpoint = e.target.value.trim();
+    if (customEndpoint) {
+        // If the endpoint doesn't start with http:// or https://, add http://
+        const baseUrl = customEndpoint.match(/^https?:\/\//) ? customEndpoint : `http://${customEndpoint}`;
+        // If the endpoint doesn't end with /api/v1, add it
+        API_BASE_URL = baseUrl.endsWith('/api/v1') ? baseUrl : `${baseUrl}/api/v1`;
+        sessionStorage.setItem('tanoAgentCustomEndpoint', API_BASE_URL);
+        log(`Custom API endpoint set to: ${API_BASE_URL}`);
+        updateApiEndpointDisplay();
+        listAgents();
+    }
+});
+
 toggleApiEndpointBtn.addEventListener('click', () => {
-    log(`Using fixed API endpoint: ${API_BASE_URL}`);
+    log(`Using API endpoint: ${API_BASE_URL}`);
     updateApiEndpointDisplay();
     listAgents();
 });
@@ -451,6 +521,7 @@ muteBtn.addEventListener('click', toggleMute);
 agentsListSelect.addEventListener('change', (e) => {
     selectedAgentId = e.target.value;
     updateButtonStates();
+    updateInstructionsDisplay(); // Update instructions when agent selection changes
 });
 
 function updateButtonStates() {
@@ -466,24 +537,41 @@ function initialize() {
     // Load and set API Key
     apiKeyInput.value = currentApiKey;
 
-    // Set fixed API endpoint
+    // Set up endpoint selection
+    apiEndpointSelect.value = currentEndpoint;
+    if (currentEndpoint === 'custom') {
+        customEndpointInput.style.display = 'inline-block';
+        customEndpointInput.value = API_BASE_URL.replace('http://', '').replace(':8000/api/v1', '');
+    }
+
     toggleApiEndpointBtn.textContent = 'Refresh Agents';
     log(`Using API Endpoint: ${API_BASE_URL}`);
-    updateApiEndpointDisplay(); // Update display on initialization
+    updateApiEndpointDisplay();
 
     if (currentApiKey) {
-        listAgents(); // Attempt to list agents with the loaded key
+        listAgents();
     } else {
         log('Enter API Key to list agents.');
     }
     updateButtonStates();
-    // Disable connect button initially
     connectBtn.disabled = true;
 }
 
 function updateApiEndpointDisplay() {
     if (currentApiEndpointSpan) {
-        currentApiEndpointSpan.textContent = `API: ${API_BASE_URL}`;
+        let displayText;
+        if (currentEndpoint === 'local') {
+            displayText = 'Local Development';
+        } else if (currentEndpoint === 'remote') {
+            displayText = 'Tano Labs Remote';
+        } else if (currentEndpoint === 'staging') {
+            displayText = 'Staging Server';
+        } else {
+            // For custom endpoints, show a cleaner version of the URL
+            const url = new URL(API_BASE_URL);
+            displayText = `Custom: ${url.host}`;
+        }
+        currentApiEndpointSpan.textContent = displayText;
     }
 }
 
