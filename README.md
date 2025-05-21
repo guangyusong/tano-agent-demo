@@ -1,16 +1,16 @@
 # Tano Agent Demo
 
-Simple web interface for testing Tano Agent voice capabilities.
+Simple web interface for testing Tano Agent voice and text chat capabilities.
 
 ## Overview
 
-This demo provides a web-based interface for testing and interacting with Tano voice agents. It allows you to:
+This demo provides a web-based interface for testing and interacting with Tano agents. It allows you to:
 
 - Configure API settings
-- Create and manage voice agents
-- Start voice sessions with agents
-- Connect to LiveKit rooms for real-time audio communication
-- Interact with agents via voice
+- Create and manage agents
+- Start voice or text sessions with agents
+- Connect to LiveKit rooms for real-time audio communication (voice mode)
+- Interact with agents via voice or text chat
 
 ## Usage
 
@@ -21,12 +21,32 @@ This demo provides a web-based interface for testing and interacting with Tano v
 2. Open `http://localhost:3000` in your web browser
 3. Enter your Tano Agent API Key
 4. Create a new agent or select an existing one
-5. Start a session with the selected agent
-6. Connect to the room to begin voice interaction
+5. Choose between voice or text mode using the session type buttons
+6. For voice mode:
+   - Start a session with the selected agent
+   - Connect to the room to begin voice interaction
+7. For text mode:
+   - Start a text session with the selected agent
+   - Type messages in the chat input and press Enter or click Send
+   - View the conversation history in the chat window
+
+## Features
+
+### Voice Mode
+- Real-time voice communication using LiveKit
+- Audio visualization
+- Participant tracking
+- Microphone mute/unmute controls
+
+### Text Mode
+- Real-time text chat with agents
+- Chat history display
+- Typing indicators
+- Session management
 
 ## LiveKit Integration
 
-This demo uses LiveKit for real-time audio communication. The following LiveKit SDKs are available for different platforms:
+The voice mode uses LiveKit for real-time audio communication. The following LiveKit SDKs are available for different platforms:
 
 - [LiveKit Client SDK for JavaScript](https://github.com/livekit/client-sdk-js) - Used in this web demo
 - [LiveKit Client SDK for Unity](https://github.com/livekit/client-sdk-unity) - For building voice agents in Unity applications
@@ -35,5 +55,5 @@ This demo uses LiveKit for real-time audio communication. The following LiveKit 
 ## Files
 
 - `index.html` - Main HTML interface
-- `script.js` - JavaScript for agent management and LiveKit integration
+- `script.js` - JavaScript for agent management, LiveKit integration, and text chat
 - `styles.css` - CSS styling for the interface

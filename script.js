@@ -21,6 +21,18 @@ const currentApiEndpointSpan = document.getElementById('currentApiEndpoint');
 const apiEndpointSelect = document.getElementById('apiEndpoint');
 const customEndpointInput = document.getElementById('customEndpoint');
 
+// Interaction tab elements
+const voiceTab = document.getElementById('voiceTab');
+const textTab = document.getElementById('textTab');
+const voiceInteraction = document.getElementById('voiceInteraction');
+const textInteraction = document.getElementById('textInteraction');
+const startVoiceSessionBtn = document.getElementById('startVoiceSessionBtn');
+const textChatMessages = document.getElementById('textChatMessages');
+const textMessageInput = document.getElementById('textMessageInput');
+const sendMessageBtn = document.getElementById('sendMessageBtn');
+const endTextSessionBtn = document.getElementById('endTextSessionBtn');
+const textSessionStatus = document.getElementById('textSessionStatus');
+
 // --- Configuration ---
 const ENDPOINTS = {
     local: 'http://localhost:8000/api/v1',
@@ -43,6 +55,12 @@ let analyser = null;
 let source = null;
 let dataArray = null;
 let animationFrameId = null;
+
+// Session state
+let activeTab = 'voice'; // 'voice' or 'text'
+let textSessionActive = false;
+let textSessionId = null;
+let isWaitingForResponse = false;
 
 // --- Logging ---
 function log(message) {
@@ -201,12 +219,10 @@ function updateInstructionsDisplay() {
     }
 }
 
-async function startAgentSession() {
-    if (!selectedAgentId || !currentApiKey) {
-        log('Please select an agent and ensure API Key is set.'); // Log instead of alert
-        return;
-    }
-    log(`Starting session for agent: ${selectedAgentId}`);
+// Remove the old startAgentSession function as we'll use separate buttons now
+
+async function startVoiceSession() {
+    log(`Starting voice session for agent: ${selectedAgentId}`);
     try {
         const sessionInfo = await apiRequest(`/agents/${selectedAgentId}/start`, 'POST', {}, currentApiKey);
         log(`Agent session dispatch initiated: ${JSON.stringify(sessionInfo)}`);
@@ -228,11 +244,222 @@ async function startAgentSession() {
             muteBtn.disabled = true;
         } else {
             log('Error: Connection URL not found in response.');
-            log('Failed to get connection URL from API.'); // Log instead of alert
+            log('Failed to get connection URL from API.');
         }
     } catch (error) {
-        log('Failed to start agent session.');
+        log('Failed to start voice agent session.');
     }
+}
+
+async function startTextSession() {
+    if (textSessionActive) {
+        return; // Session already active
+    }
+
+    if (!selectedAgentId) {
+        log('Please select an agent first.');
+        addSystemMessage('Please select an agent first.');
+        return;
+    }
+
+    log(`Starting text session for agent: ${selectedAgentId}`);
+    try {
+        const sessionInfo = await apiRequest(`/agents/${selectedAgentId}/start-text`, 'POST', {}, currentApiKey);
+        log(`Text agent session started: ${JSON.stringify(sessionInfo)}`);
+
+        if (sessionInfo.session_id) {
+            textSessionId = sessionInfo.session_id;
+            textSessionStatus.textContent = 'Connected';
+
+            // Show end session button
+            endTextSessionBtn.style.display = 'inline-block';
+
+            // Clear previous messages and add welcome message
+            textChatMessages.innerHTML = '';
+            addSystemMessage('Text session started. You can now chat with the agent.');
+
+            textSessionActive = true;
+            return true;
+        } else {
+            log('Error: Session ID not found in response.');
+            log('Failed to start text session.');
+            return false;
+        }
+    } catch (error) {
+        log('Failed to start text agent session.');
+        return false;
+    }
+}
+
+async function sendTextMessage() {
+    if (!selectedAgentId) {
+        log('Please select an agent first.');
+        addSystemMessage('Please select an agent first.');
+        return;
+    }
+
+    const message = textMessageInput.value.trim();
+    if (!message) return;
+
+    // Clear input
+    textMessageInput.value = '';
+
+    // If no active session, start one first
+    if (!textSessionActive) {
+        const sessionStarted = await startTextSession();
+        if (!sessionStarted) {
+            addSystemMessage('Failed to start text session. Please try again.');
+            return;
+        }
+    }
+
+    // Add user message to chat
+    addUserMessage(message);
+
+    // Show typing indicator
+    addTypingIndicator();
+
+    // Disable input while waiting for response
+    textMessageInput.disabled = true;
+    sendMessageBtn.disabled = true;
+    isWaitingForResponse = true;
+
+    try {
+        const response = await apiRequest(
+            `/agents/${selectedAgentId}/sessions/${textSessionId}/message`,
+            'POST',
+            { message },
+            currentApiKey
+        );
+
+        // Remove typing indicator
+        removeTypingIndicator();
+
+        // Add agent response to chat
+        if (response && response.response) {
+            addAgentMessage(response.response);
+        } else {
+            addSystemMessage('Error: No response received from agent.');
+        }
+    } catch (error) {
+        // Remove typing indicator
+        removeTypingIndicator();
+        addSystemMessage('Error sending message. Please try again.');
+        log(`Error sending message: ${error}`);
+    }
+
+    // Re-enable input
+    textMessageInput.disabled = false;
+    sendMessageBtn.disabled = false;
+    isWaitingForResponse = false;
+    textMessageInput.focus();
+}
+
+async function endTextSession() {
+    if (!textSessionActive || !textSessionId || !selectedAgentId) {
+        log('No active text session to end.');
+        return;
+    }
+
+    try {
+        await apiRequest(
+            `/agents/${selectedAgentId}/sessions/${textSessionId}`,
+            'DELETE',
+            null,
+            currentApiKey
+        );
+
+        log(`Text session ${textSessionId} ended.`);
+        addSystemMessage('Session ended.');
+
+        // Reset text session state
+        textSessionActive = false;
+        textSessionId = null;
+        textSessionStatus.textContent = 'Ready';
+
+        // Hide end session button
+        endTextSessionBtn.style.display = 'none';
+    } catch (error) {
+        log(`Error ending text session: ${error}`);
+        addSystemMessage('Error ending session. Please try again.');
+    }
+}
+
+// Helper functions for chat UI
+function addUserMessage(message) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message user-message';
+    messageDiv.textContent = message;
+    textChatMessages.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+function addAgentMessage(message) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message agent-message';
+    messageDiv.textContent = message;
+    textChatMessages.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+function addSystemMessage(message) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'welcome-message';
+    messageDiv.textContent = message;
+    textChatMessages.appendChild(messageDiv);
+    scrollToBottom();
+}
+
+function addTypingIndicator() {
+    const indicator = document.createElement('div');
+    indicator.className = 'typing-indicator';
+    indicator.id = 'typingIndicator';
+    indicator.textContent = 'Agent is typing...';
+    textChatMessages.appendChild(indicator);
+    scrollToBottom();
+}
+
+function removeTypingIndicator() {
+    const indicator = document.getElementById('typingIndicator');
+    if (indicator) {
+        indicator.remove();
+    }
+}
+
+function scrollToBottom() {
+    textChatMessages.scrollTop = textChatMessages.scrollHeight;
+}
+
+function switchTab(tab) {
+    activeTab = tab;
+
+    if (tab === 'voice') {
+        voiceTab.classList.add('active');
+        textTab.classList.remove('active');
+        voiceInteraction.classList.add('active');
+        textInteraction.classList.remove('active');
+    } else {
+        voiceTab.classList.remove('active');
+        textTab.classList.add('active');
+        voiceInteraction.classList.remove('active');
+        textInteraction.classList.add('active');
+
+        // Focus on text input when switching to text mode
+        if (selectedAgentId) {
+            textMessageInput.focus();
+        }
+    }
+
+    updateButtonStates();
+}
+
+function updateInteractionButtons() {
+    // Update voice interaction buttons
+    startVoiceSessionBtn.disabled = !selectedAgentId;
+
+    // Update text interaction buttons
+    textMessageInput.disabled = !selectedAgentId;
+    sendMessageBtn.disabled = !selectedAgentId;
 }
 
 // --- Voice Service Interaction ---
@@ -474,6 +701,18 @@ apiKeyInput.addEventListener('change', (e) => {
     listAgents();
 });
 
+// Interaction tab event listeners
+voiceTab.addEventListener('click', () => switchTab('voice'));
+textTab.addEventListener('click', () => switchTab('text'));
+startVoiceSessionBtn.addEventListener('click', startVoiceSession);
+endTextSessionBtn.addEventListener('click', endTextSession);
+sendMessageBtn.addEventListener('click', sendTextMessage);
+textMessageInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        sendTextMessage();
+    }
+});
+
 apiEndpointSelect.addEventListener('change', (e) => {
     currentEndpoint = e.target.value;
     if (currentEndpoint === 'custom') {
@@ -513,7 +752,7 @@ toggleApiEndpointBtn.addEventListener('click', () => {
 createAgentBtn.addEventListener('click', createAgent);
 listAgentsBtn.addEventListener('click', listAgents);
 deleteAgentBtn.addEventListener('click', deleteAgent);
-startSessionBtn.addEventListener('click', startAgentSession);
+startSessionBtn.addEventListener('click', startVoiceSession);
 connectBtn.addEventListener('click', connectToRoom);
 disconnectBtn.addEventListener('click', disconnectFromRoom);
 muteBtn.addEventListener('click', toggleMute);
@@ -528,6 +767,9 @@ function updateButtonStates() {
     const agentSelected = !!selectedAgentId;
     deleteAgentBtn.disabled = !agentSelected;
     startSessionBtn.disabled = !agentSelected;
+
+    // Update interaction-specific buttons
+    updateInteractionButtons();
 }
 
 // --- Initial Load ---
@@ -553,6 +795,10 @@ function initialize() {
     } else {
         log('Enter API Key to list agents.');
     }
+
+    // Initialize interaction tab
+    switchTab('voice');
+
     updateButtonStates();
     connectBtn.disabled = true;
 }
